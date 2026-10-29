@@ -1,0 +1,14 @@
+{
+  "name": "sfdse-generator",
+  "version": "1.0.0",
+  "description": "The generator behind S.F.D.S.E. (Searching For Double Snake Eyes): a Bitcoin block hash in, four dice, a rarity and an image out.",
+  "main": "sfdse-core.cjs",
+  "scripts": {
+    "test": "node test.cjs 100000",
+    "replay": "node replay.cjs 730",
+    "randomness": "node randomness-check.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
