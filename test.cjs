@@ -67,20 +67,24 @@ for (let i = 0; i < N; i++) {
   assert.ok(!S.overlaps(a.placed[2], a.placed[3], h), `dice 3–4 overlap, seed ${seed}`);
   // The composition is random but the rectangles never change size or leave the margin,
   // and every drawn value is one that takes effect (inside its range, not clamped).
-  const G = a.cfg.grid, m = a.cfg.rectMargin, rr = S.ranges(a.cfg);
+  const G = a.cfg.grid, GY = a.cfg.rows, m = a.cfg.rectMargin, rr = S.ranges(a.cfg);
   a.layout.rects.forEach((r) => {
-    assert.ok(r.w === 52 && r.h === 35, `rectangle resized, seed ${seed}`);
-    assert.ok(r.x >= m && r.y >= m && r.x + r.w <= G - m && r.y + r.h <= G - m, `rectangle in the margin, seed ${seed}`);
+    assert.ok(r.w === 60 && r.h === 40, `rectangle resized, seed ${seed}`);
+    assert.ok(r.x >= m && r.y >= m && r.x + r.w <= G - m && r.y + r.h <= GY - m, `rectangle in the margin, seed ${seed}`);
   });
   for (const k of ['rectGap', 'rectStagger', 'rectX', 'rectY']) {
     assert.ok(a.cfg[k] >= rr[k][0] && a.cfg[k] <= rr[k][1], `${k} out of range, seed ${seed}`);
     comp[k].add(a.cfg[k]);
   }
   maxBytes = Math.max(maxBytes, S.svg(a).length);
+  // The image no longer shows the rarity, so the metadata must carry the four rolls and the rarity.
+  const traits = Object.fromEntries(S.metadata(a, 1, 1, 'x').attributes.map((t) => [t.trait_type, t.value]));
+  assert.deepStrictEqual([1, 2, 3, 4].map((k) => traits[`Roll ${k}`]), a.dice.map(String), `rolls missing from metadata, seed ${seed}`);
+  assert.strictEqual(traits.Rarity, a.rarity, `rarity missing from metadata, seed ${seed}`);
   if (i < 2000) {
     // Background blocks and reserved areas cover every grid cell exactly once.
-    const G = a.cfg.grid, cover = new Uint8Array(G * G);
-    const fill = (x, y, w, h) => { for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) { assert.ok(xx >= 0 && xx < G && yy >= 0 && yy < G, 'block off the grid'); cover[yy * G + xx]++; } };
+    const G = a.cfg.grid, GY = a.cfg.rows, cover = new Uint8Array(G * GY);
+    const fill = (x, y, w, h) => { for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) { assert.ok(xx >= 0 && xx < G && yy >= 0 && yy < GY, 'block off the grid'); cover[yy * G + xx]++; } };
     a.blocks.forEach((b) => fill(b.x, b.y, b.s, b.s));
     a.empty.forEach((r) => fill(r.x, r.y, r.w, 1));
     a.reserved.forEach((r) => fill(r.x, r.y, r.w, r.h));
@@ -91,10 +95,10 @@ console.log(`${N} NFTs ok. faces:`, faces.slice(1).map((f) => (f / (N * 4) * 6).
   `\nrarities:`, Object.entries(seen).map(([k, v]) => `${k} ${(v / N * 100).toFixed(2)}% (exp ${(odds[k] / 12.96).toFixed(2)}%)`).join(', '),
   `\nfallback placements: ${fallbacks}, largest SVG: ${maxBytes} bytes`);
 {
-  // Every gap from 1 to 22 and every stagger from -40 to 40 turns up.
+  // Every gap from 1 to 41 and every stagger from -36 to 36 turns up.
   const all = (lo, hi) => Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
-  assert.deepStrictEqual([...comp.rectGap].sort((x, y) => x - y), all(1, 22));
-  assert.deepStrictEqual([...comp.rectStagger].sort((x, y) => x - y), all(-40, 40));
+  assert.deepStrictEqual([...comp.rectGap].sort((x, y) => x - y), all(1, 41));
+  assert.deepStrictEqual([...comp.rectStagger].sort((x, y) => x - y), all(-36, 36));
   console.log(`composition ok: ${comp.rectX.size} left/right and ${comp.rectY.size} up/down positions seen`);
 }
 

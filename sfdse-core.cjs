@@ -87,7 +87,10 @@ const SFDSE = (() => {
   // never change once mainnet NFTs exist: a minted image must stay reproducible.
   //   1  until Oct 28: one fixed composition
   //   2  Oct 28: gap, stagger and position drawn from the hash
-  const LOOK = 2;
+  //   3  Oct 31: 4:5 portrait like the drawings' 8x10 paper (1002 x 1252: 100 x 125 cells of 10 px with
+  //      2 px gaps, the edge included, so every line is sharp), larger rectangles (60 x 40 cells),
+  //      dice 82 without outline, rectangles #101010, no rarity symbol, 1-cell squares without a pattern
+  const LOOK = 3;
 
   const RARITIES = ['Common', 'Uncommon', 'Rare', 'So Close!', 'Ultra Rare', 'Double Snake Eyes'];
 
@@ -102,37 +105,40 @@ const SFDSE = (() => {
   }
 
   // ---- Look -----------------------------------------------------------------
-  // The square is a Bitcoin block drawn the way mempool.space draws one: every
+  // The picture is a Bitcoin block drawn the way mempool.space draws one: every
   // transaction a small square, sized by its vsize, shaded by its fee rate, packed
   // from the bottom up; unused block space shows white. The two black rectangles
   // (rolls 1–2 first, 3–4 second) are reserved spaces in the same grid,
-  // so everything lines up. The rarity symbol floats on top in the top right corner.
+  // so everything lines up. The rarity symbol (off unless rarityMark) floats on top in the top right corner.
   const DEFAULTS = {
-    size: 1000,                   // the outer square
-    grid: 96,                     // cells per side
+    size: 1002,                   // image width: grid x cell + gutter (height: rows x cell + gutter)
+    cell: 10,                     // cell size in px, whole so every line falls on a pixel
+    grid: 100,                    // cells across
+    rows: 125,                    // cells down (4:5 portrait, like the drawings' 8x10 paper)
     // Composition of the two black rectangles (all in cells):
     arrange: 'stacked',           // 'stacked' (one above the other) or 'side' (side by side)
     rectRatio: '3:2',             // each rectangle's width:height
-    rectW: 52,                    // rectangle width
+    rectW: 60,                    // rectangle width (60% of the width; the drawings' are 62%)
     rectGap: 6,                   // space between the two rectangles
     rectStagger: 0,               // shifts the second rectangle across (stacked: right, side: down)
     rectX: 0,                     // moves the pair right of centre (negative: left)
     rectY: 0,                     // moves the pair below centre (negative: up)
     rectMargin: 2,                // the pair always stays this far from the edge
     rectRandom: true,             // each NFT draws gap, stagger and position from its hash
+    rarityMark: false,            // draw the rarity symbol (look 2 did; look 3 doesn't)
     markCells: 8,                 // the symbol's corner area, in cells per side
     gutter: 2,                    // gap between blocks
     shades: 6,                    // steps of gray, from lowest to highest fee rate
     blockVsize: 1000000,          // a full block, in vbytes
-    die: 84,                      // die edge length
-    dieLine: 2.5,                 // die outline
+    die: 82,                      // die edge length
+    dieLine: 0,                   // die outline (none; look 2 had 2.5)
     radius: 0.09,                 // die corner radius, fraction of edge
     pip: 0.12,                    // pip radius, fraction of edge
     onePip: 1,                    // size multiplier for the single pip on a 1
     gap: 2,                       // minimum space between two dice, and die-to-edge
     mark: 32,                     // rarity symbol height
     ink: '#000000',
-    rect: '#000000',
+    rect: '#101010',
     white: '#ffffff',
     red: '#8f1d1d',
     canvas: '#d9d9d9',            // the gaps between blocks: darker than the blocks
@@ -211,11 +217,11 @@ const SFDSE = (() => {
   // The rectangles keep their size whatever the composition. Only a look where the
   // tightest pair (1 apart, no stagger) can't fit inside the margin makes them smaller.
   function rectSize(cfg) {
-    const G = cfg.grid, room = G - 2 * cfg.rectMargin, side = cfg.arrange === 'side';
+    const roomX = cfg.grid - 2 * cfg.rectMargin, roomY = (cfg.rows || cfg.grid) - 2 * cfg.rectMargin, side = cfg.arrange === 'side';
     const [rw, rh] = String(cfg.rectRatio).split(':').map(Number);
     const size = (w) => ({ w, h: Math.max(1, Math.round((w * rh) / rw)) });
     let d = size(Math.round(cfg.rectW));
-    while (d.w > 1 && (side ? 2 * d.w + 1 > room || d.h > room : d.w > room || 2 * d.h + 1 > room)) d = size(d.w - 1);
+    while (d.w > 1 && (side ? 2 * d.w + 1 > roomX || d.h > roomY : d.w > roomX || 2 * d.h + 1 > roomY)) d = size(d.w - 1);
     return d;
   }
 
@@ -224,16 +230,17 @@ const SFDSE = (() => {
   // off by the edge. Gap and stagger don't limit each other; position depends on both.
   // rectX/rectY count from the centred spot (the pair's outer box, rounded up-left).
   function ranges(cfg) {
-    const G = cfg.grid, m = cfg.rectMargin, room = G - 2 * m, side = cfg.arrange === 'side';
+    const GX = cfg.grid, GY = cfg.rows || cfg.grid, m = cfg.rectMargin, side = cfg.arrange === 'side';
+    const roomX = GX - 2 * m, roomY = GY - 2 * m;
     const { w, h } = rectSize(cfg);
     const clamp = (v, [lo, hi]) => Math.min(Math.max(Math.round(v), lo), hi);
-    const rectGap = [1, Math.max(1, room - (side ? 2 * w : 2 * h))];
-    const sMax = Math.max(0, room - (side ? h : w));
+    const rectGap = [1, Math.max(1, side ? roomX - 2 * w : roomY - 2 * h)];
+    const sMax = Math.max(0, side ? roomY - h : roomX - w);
     const rectStagger = [-sMax, sMax];
     const gap = clamp(cfg.rectGap, rectGap), st = clamp(cfg.rectStagger, rectStagger), s = Math.abs(st);
     const W = side ? 2 * w + gap : w + s, H = side ? h + s : 2 * h + gap;
-    const along = (L) => { const c = Math.floor((G - L) / 2); return [m - c, Math.max(m, G - m - L) - c]; };
-    return { w, h, W, H, gap, st, rectGap, rectStagger, rectX: along(W), rectY: along(H), clamp };
+    const along = (G, L) => { const c = Math.floor((G - L) / 2); return [m - c, Math.max(m, G - m - L) - c]; };
+    return { w, h, W, H, gap, st, rectGap, rectStagger, rectX: along(GX, W), rectY: along(GY, H), clamp };
   }
 
   // A composition drawn from the hash: each value equally likely across its full range,
@@ -252,10 +259,10 @@ const SFDSE = (() => {
   // centred and then moved by rectX/rectY; and the top right corner area where
   // the rarity symbol is drawn. Values outside their range are brought into it.
   function layout(cfg) {
-    const G = cfg.grid, side = cfg.arrange === 'side';
+    const G = cfg.grid, GY = cfg.rows || cfg.grid, side = cfg.arrange === 'side';
     const r = ranges(cfg), { w, h, W, H, gap, st } = r;
     const rx = r.clamp(cfg.rectX, r.rectX), ry = r.clamp(cfg.rectY, r.rectY);
-    const x = Math.floor((G - W) / 2) + rx, y = Math.floor((G - H) / 2) + ry;
+    const x = Math.floor((G - W) / 2) + rx, y = Math.floor((GY - H) / 2) + ry;
     const a = Math.max(0, -st), b = Math.max(0, st);
     return {
       rects: side
@@ -268,10 +275,15 @@ const SFDSE = (() => {
 
   // Cells → image coordinates. The grid is inset by half a gutter so the blocks
   // on the edge get the same gap to the edge as to each other.
-  const unit = (cfg) => (cfg.size - cfg.gutter) / cfg.grid;
+  const unit = (cfg) => cfg.cell || (cfg.size - cfg.gutter) / cfg.grid;
+  const left = (cfg) => (cfg.size - cfg.grid * unit(cfg)) / 2;
+  // Image height: the width scaled by rows ÷ columns, whole pixels; the grid is centred in it.
+  const height = (cfg) => cfg.cell ? (cfg.rows || cfg.grid) * cfg.cell + cfg.gutter : Math.round((cfg.size * (cfg.rows || cfg.grid)) / cfg.grid);
+  const top = (cfg) => (height(cfg) - (cfg.rows || cfg.grid) * unit(cfg)) / 2;
   function toPx(c, cfg) {
-    const u = unit(cfg), g = cfg.gutter;
-    return { x0: g / 2 + c.x * u + g / 2, y0: g / 2 + c.y * u + g / 2, x1: g / 2 + (c.x + c.w) * u - g / 2, y1: g / 2 + (c.y + c.h) * u - g / 2 };
+    const u = unit(cfg), g = cfg.gutter, t = top(cfg);
+    const l = left(cfg);
+    return { x0: l + c.x * u + g / 2, y0: t + c.y * u + g / 2, x1: l + (c.x + c.w) * u - g / 2, y1: t + (c.y + c.h) * u - g / 2 };
   }
 
   // Pack a block's transactions the way mempool.space does (block-scene.ts):
@@ -284,8 +296,8 @@ const SFDSE = (() => {
   // are cells; like mempool.space, the ones that don't fit (the lowest fee
   // rates, as they come last) run off the picture, and the block looks full.
   function packTxs(txs, cfg, reserved) {
-    const G = cfg.grid;
-    const base = new Uint8Array(G * G);
+    const G = cfg.grid, GY = cfg.rows || cfg.grid;
+    const base = new Uint8Array(G * GY);
     for (const r of reserved) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) base[y * G + x] = 1;
     const freeCells = base.reduce((n, v) => n + (v ? 0 : 1), 0);
     const order = txs.map((t, i) => ({ ...t, i })).sort((a, b) => b.rate - a.rate || (a.id === undefined || a.id === b.id ? 0 : a.id < b.id ? -1 : 1) || a.i - b.i);
@@ -302,11 +314,11 @@ const SFDSE = (() => {
     // spot is tested row by row instead of cell by cell. from[s]: the lowest row a
     // square of size s can still have its bottom on; rows only ever fill up, so a
     // row that had no room for size s never will. Same result as a full scan.
-    const run = new Uint8Array(G * G);
-    for (let y = 0; y < G; y++) for (let x = G - 1, n = 0; x >= 0; x--) { n = used[y * G + x] ? 0 : n + 1; run[y * G + x] = n; }
+    const run = new Uint8Array(G * GY);
+    for (let y = 0; y < GY; y++) for (let x = G - 1, n = 0; x >= 0; x--) { n = used[y * G + x] ? 0 : n + 1; run[y * G + x] = n; }
     // first[y]: no free cell in row y lies left of this (cells only ever fill up).
-    const first = new Int16Array(G);
-    const from = new Int16Array(G + 1).fill(G - 1);
+    const first = new Int16Array(GY);
+    const from = new Int16Array(G + 1).fill(GY - 1);
     let left = freeCells, overflow = 0;
     for (const t of order) {
       const s = Math.min(G, Math.max(1, Math.round(Math.sqrt((1.1 * t.vsize) / perCell))));
@@ -339,7 +351,7 @@ const SFDSE = (() => {
     }
     // Empty space, as runs of free cells per row.
     const empty = [];
-    for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    for (let y = 0; y < GY; y++) for (let x = 0; x < G; x++) {
       if (used[y * G + x]) continue;
       let w = 1;
       while (x + w < G && !used[y * G + x + w]) w++;
@@ -457,7 +469,7 @@ const SFDSE = (() => {
     const fill = n === 1 ? cfg.red : cfg.ink;
     const pips = PIPS[n].map(([x, y]) => `<circle cx="${r1(x * q)}" cy="${r1(y * q)}" r="${pip}"/>`).join('');
     return `<g transform="translate(${p.x} ${p.y}) rotate(${p.deg})">`
-      + `<rect x="${-h}" y="${-h}" width="${s}" height="${s}" rx="${r1(s * cfg.radius)}" fill="${cfg.white}" stroke="${cfg.ink}" stroke-width="${cfg.dieLine}"/>`
+      + `<rect x="${-h}" y="${-h}" width="${s}" height="${s}" rx="${r1(s * cfg.radius)}" fill="${cfg.white}"${cfg.dieLine ? ` stroke="${cfg.ink}" stroke-width="${cfg.dieLine}"` : ''}/>`
       + `<g fill="${fill}">${pips}</g></g>`;
   }
 
@@ -470,15 +482,15 @@ const SFDSE = (() => {
   // Every block is inset by half a gap, so two blocks side by side show a whole gap.
   // Empty space fills its cells edge to edge, so wherever it meets a block (or the
   // image edge) it gets a half-gap strip in the gap color, keeping every line equal.
-  function emptyEdges(empty, G, h, color) {
+  function emptyEdges(empty, G, GY, h, color) {
     h = r3(h);                                                   // same rounding as the blocks' inset
-    const free = new Uint8Array(G * G);
+    const free = new Uint8Array(G * GY);
     for (const r of empty) free.fill(1, r.y * G + r.x, r.y * G + r.x + r.w);
-    const isFree = (x, y) => x >= 0 && y >= 0 && x < G && y < G && free[y * G + x] === 1;
+    const isFree = (x, y) => x >= 0 && y >= 0 && x < G && y < GY && free[y * G + x] === 1;
     const d = [];
     const hz = (x, y, w) => d.push(`M${x} ${r3(y)}h${w}v${h}h-${w}z`);
     const vt = (x, y, n) => d.push(`M${r3(x)} ${y}h${h}v${n}h-${h}z`);
-    for (let y = 0; y < G; y++) {
+    for (let y = 0; y < GY; y++) {
       for (const [dy, off] of [[-1, 0], [1, 1 - h]]) {           // top and bottom edges
         for (let x = 0; x < G; x++) {
           if (!isFree(x, y) || isFree(x, y + dy)) continue;
@@ -491,7 +503,7 @@ const SFDSE = (() => {
     }
     for (let x = 0; x < G; x++) {
       for (const [dx, off] of [[-1, 0], [1, 1 - h]]) {           // left and right edges
-        for (let y = 0; y < G; y++) {
+        for (let y = 0; y < GY; y++) {
           if (!isFree(x, y) || isFree(x + dx, y)) continue;
           let n = 1;
           while (isFree(x, y + n) && !isFree(x + dx, y + n)) n++;
@@ -501,7 +513,7 @@ const SFDSE = (() => {
       }
     }
     // Corners where only the diagonal neighbour is a block.
-    for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    for (let y = 0; y < GY; y++) for (let x = 0; x < G; x++) {
       if (!isFree(x, y)) continue;
       for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         if (isFree(x + dx, y + dy) || !isFree(x + dx, y) || !isFree(x, y + dy)) continue;
@@ -513,11 +525,13 @@ const SFDSE = (() => {
 
   function svg(nft) {
     const { cfg, placed, dice, blocks, empty, layout: lay } = nft, S = cfg.size, u = unit(cfg);
+    const SH = height(cfg);
     const g = r3(cfg.gutter / u);                       // gap, in cells
     const shade = (i) => mix(cfg.blockDark, cfg.blockLight, 1 - i / Math.max(1, cfg.shades - 1));
-    // Thousands of 1-cell squares: merged into runs per row and shade, filled with
-    // a one-cell pattern that draws the gap, so the file stays small. Bigger
-    // squares are drawn one by one, with a stroke in the gap color as their gap.
+    // Thousands of 1-cell squares: merged into runs per row and shade, filled solid, with
+    // the gap lines drawn over them as real lines clipped to those runs, so the file stays
+    // small and the lines stay sharp (look 2's one-cell pattern is blurred by many
+    // renderers). Bigger squares are drawn one by one, with a stroke in the gap color as their gap.
     const runs = Array.from({ length: cfg.shades }, () => []), big = Array.from({ length: cfg.shades }, () => '');
     const ones = blocks.filter((b) => b.s === 1).sort((a, b) => a.y - b.y || a.x - b.x);
     for (const b of ones) {
@@ -527,22 +541,29 @@ const SFDSE = (() => {
     }
     for (const b of blocks) if (b.s > 1) big[b.shade] += `M${b.x} ${b.y}h${b.s}v${b.s}h-${b.s}z`;
     let defs = '';
-    runs.forEach((l, i) => {
-      if (l.length) defs += `<pattern id="p${i}" width="1" height="1" patternUnits="userSpaceOnUse"><rect x="${r3(g / 2)}" y="${r3(g / 2)}" width="${r3(1 - g)}" height="${r3(1 - g)}" fill="${shade(i)}"/></pattern>`;
-    });
     const row = (r) => `M${r.x} ${r.y}h${r.w}v1h-${r.w}z`;
     let grid = '';
-    if (empty.length) grid += `<path fill="${cfg.empty}" d="${empty.map(row).join('')}"/>${emptyEdges(empty, cfg.grid, g / 2, cfg.canvas)}`;
-    runs.forEach((l, i) => { if (l.length) grid += `<path fill="url(#p${i})" d="${l.map(row).join('')}"/>`; });
+    if (empty.length) grid += `<path fill="${cfg.empty}" d="${empty.map(row).join('')}"/>${emptyEdges(empty, cfg.grid, cfg.rows || cfg.grid, g / 2, cfg.canvas)}`;
+    const all = runs.flat();
+    runs.forEach((l, i) => { if (l.length) grid += `<path fill="${shade(i)}" d="${l.map(row).join('')}"/>`; });
+    if (all.length) {
+      const GY = cfg.rows || cfg.grid;
+      let lines = '';
+      for (let x = 0; x <= cfg.grid; x++) lines += `M${x} 0V${GY}`;
+      for (let y = 0; y <= GY; y++) lines += `M0 ${y}H${cfg.grid}`;
+      defs += `<clipPath id="c1"><path d="${all.map(row).join('')}"/></clipPath>`;
+      grid += `<path clip-path="url(#c1)" stroke="${cfg.canvas}" stroke-width="${g}" d="${lines}"/>`;
+    }
     let strokes = big.map((d, i) => d && `<path fill="${shade(i)}" d="${d}"/>`).join('');
-    const mc = lay.markCell;
     strokes += `<path fill="${cfg.rect}" d="${lay.rects.map((r) => `M${r.x} ${r.y}h${r.w}v${r.h}h-${r.w}z`).join('')}"/>`;
-    let body = `<rect width="${S}" height="${S}" fill="${cfg.canvas}"/>`;
-    body += `<g transform="translate(${cfg.gutter / 2} ${cfg.gutter / 2}) scale(${r3(u)})">${grid}<g stroke="${cfg.canvas}" stroke-width="${g}">${strokes}</g></g>`;
-    const mp = toPx(mc, cfg);
-    body += mark(nft.rarity, cfg, { x: (mp.x0 + mp.x1) / 2, y: (mp.y0 + mp.y1) / 2 });
+    let body = `<rect width="${S}" height="${SH}" fill="${cfg.canvas}"/>`;
+    body += `<g transform="translate(${r3(left(cfg))} ${r3(top(cfg))}) scale(${r3(u)})">${grid}<g stroke="${cfg.canvas}" stroke-width="${g}">${strokes}</g></g>`;
+    if (cfg.rarityMark) {
+      const mp = toPx(lay.markCell, cfg);
+      body += mark(nft.rarity, cfg, { x: (mp.x0 + mp.x1) / 2, y: (mp.y0 + mp.y1) / 2 });
+    }
     body += placed.map((p, i) => die(p, dice[i], cfg)).join('');
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}">${defs ? `<defs>${defs}</defs>` : ''}${body}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${SH}">${defs ? `<defs>${defs}</defs>` : ''}${body}</svg>`;
   }
 
   // ---- Metadata (Metaplex JSON) ---------------------------------------------
